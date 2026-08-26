@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+data/chat_sessions.json
+data/evidence_records.json
+data/return_evidence/
+_to_delete/
