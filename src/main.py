@@ -6,7 +6,7 @@ from pathlib import Path
 
 import src.env_loader  # noqa: F401 — loads .env before anything else
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -31,6 +31,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=f"{ASSISTANT_NAME} — {STORE_NAME} Support", version="1.0.0", lifespan=lifespan)
 app.include_router(router)
+
+
+@app.middleware("http")
+async def no_stale_cache(request: Request, call_next):
+    """Force browsers to revalidate the HTML shell and JS/CSS on every visit.
+
+    Without this, mobile Safari/Chrome can silently keep serving an old cached
+    bundle after a redeploy (no cache-busting on /static/* URLs), which looks
+    like a broken app on phones that visited before a fix shipped.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
 
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

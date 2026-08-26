@@ -21,6 +21,7 @@ def set_agent(agent: SupportAgent | None) -> None:
 
 
 def require_agent() -> SupportAgent:
+    global _agent
     if _agent is not None:
         return _agent
     if not is_groq_key_configured():
@@ -28,7 +29,11 @@ def require_agent() -> SupportAgent:
             status_code=503,
             detail="GROQ_API_KEY missing. Edit .env with gsk_... from https://console.groq.com",
         )
-    raise HTTPException(status_code=503, detail="Agent failed to start. Restart ./run.sh")
+    # Lazy fallback: serverless ASGI adapters (e.g. Vercel's Python runtime)
+    # don't reliably run FastAPI's lifespan startup hook, so build the agent
+    # here on first use rather than depending solely on lifespan having run.
+    _agent = SupportAgent()
+    return _agent
 
 
 def groq_http_error(exc: Exception) -> HTTPException:
