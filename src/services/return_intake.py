@@ -102,6 +102,44 @@ def _customer_copy(text: str) -> str:
     return re.sub(r"\s*\(§\d+(?:\.\d+)?\)", "", text)
 
 
+def _ineligibility_reply(result: dict[str, Any], item_name: str) -> str:
+    """Render WHY an item is ineligible, not just that it is.
+
+    check_return_eligibility only sets a top-level "reason" for order-wide
+    failures (cancelled, not delivered, window expired, late damage report).
+    A per-item failure — final sale, non-returnable category — is only
+    described inside items[].issues, so that has to be checked too or the
+    customer gets a bare "not eligible" with no explanation.
+    """
+    reason = result.get("reason")
+    if reason:
+        text = _customer_copy(reason)
+    else:
+        item_result = next(
+            (i for i in result.get("items", []) if not i.get("eligible")), None
+        )
+        issues = item_result.get("issues") if item_result else None
+        if issues:
+            joined = ". ".join(i.rstrip(".") for i in issues)
+            text = _customer_copy(f"**{item_name}** — {joined}")
+        else:
+            text = f"**{item_name}** is not eligible for return."
+    return text if text.endswith((".", "!", "?")) else text + "."
+
+
+def _final_sale_reply(order: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+    """Final Sale eligibility never depends on the return reason, so surface it
+    immediately when the item is identified instead of asking for a reason first."""
+    result = check_return_eligibility(order["order_id"], [item["item_id"]], "change_of_mind")
+    return {
+        "reply": (
+            f"{_ineligibility_reply(result, item['name'])} "
+            "Would you like me to check available sizes for an exchange instead?"
+        ),
+        "tool_calls": ["check_return_eligibility"],
+    }
+
+
 def _eligible_confirmation(state: ConversationState, order: dict[str, Any]) -> dict[str, Any]:
     intake = state.return_intake or {}
     result = check_return_eligibility(
@@ -110,7 +148,7 @@ def _eligible_confirmation(state: ConversationState, order: dict[str, Any]) -> d
     if not result.get("eligible"):
         state.return_intake = None
         return {
-            "reply": result.get("reason", "This item is not eligible for return."),
+            "reply": _ineligibility_reply(result, intake["item_name"]),
             "tool_calls": ["check_return_eligibility"],
         }
     state.return_intake["stage"] = "confirm"
@@ -148,6 +186,8 @@ def handle_return_intake(state: ConversationState, message: str) -> dict[str, An
             state.return_intake = {"order_id": order_id, "stage": "item"}
             return {"reply": _items_prompt(order), "choices": _item_choices(order)}
         item = order["items"][0]
+        if item.get("final_sale"):
+            return _final_sale_reply(order, item)
         state.return_intake = {
             "order_id": order_id, "item_id": item["item_id"], "item_name": item["name"], "stage": "reason"
         }
@@ -162,6 +202,9 @@ def handle_return_intake(state: ConversationState, message: str) -> dict[str, An
         item = _find_item(order, message)
         if not item:
             return {"reply": _items_prompt(order), "choices": _item_choices(order)}
+        if item.get("final_sale"):
+            state.return_intake = None
+            return _final_sale_reply(order, item)
         intake.update({"item_id": item["item_id"], "item_name": item["name"], "stage": "reason"})
         return {"reply": _reason_prompt(item), "choices": RETURN_REASON_CHOICES}
 
@@ -175,7 +218,7 @@ def handle_return_intake(state: ConversationState, message: str) -> dict[str, An
             if not eligibility.get("eligible"):
                 state.return_intake = None
                 return {
-                    "reply": eligibility.get("reason", "This item is not eligible for a return."),
+                    "reply": _ineligibility_reply(eligibility, intake["item_name"]),
                     "tool_calls": ["check_return_eligibility"],
                 }
             intake["stage"] = "evidence"

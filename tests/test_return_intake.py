@@ -107,6 +107,42 @@ def test_valid_evidence_is_stored_then_escalated(orders, monkeypatch):
     assert "data:image" not in str(state.to_dict())
 
 
+def test_final_sale_item_explains_why_before_asking_reason(orders):
+    """Final Sale eligibility never depends on the return reason, so the customer
+    should get the explanation immediately — not a bare 'not eligible for return'
+    that only gets explained after they ask 'why?'."""
+    order = next(
+        o for o in orders.values()
+        if o["status"] == "delivered" and any(i.get("final_sale") for i in o["items"])
+    )
+    item = next(i for i in order["items"] if i.get("final_sale"))
+    state = _state(order)
+    result = handle_return_intake(state, f"I'd like to return my {item['name']} from {order['order_id']}")
+    assert "final sale" in result["reply"].lower()
+    assert "size exchange" in result["reply"].lower()
+    assert result["reply"] != "This item is not eligible for return."
+    assert "reason for returning" not in result["reply"].lower()
+    assert state.return_intake is None
+
+
+def test_non_returnable_category_explains_why_not_just_ineligible(orders):
+    """A category-excluded item (e.g. jewellery) must explain the actual reason,
+    not fall back to a generic 'not eligible' with no detail."""
+    order = next(
+        o for o in orders.values()
+        if o["status"] == "delivered"
+        and any(i.get("category") in {"jewellery", "innerwear"} for i in o["items"])
+    )
+    state = _state(order)
+    handle_return_intake(state, f"I want to return {order['order_id']}")
+    if state.return_intake and state.return_intake["stage"] == "item":
+        item = next(i for i in order["items"] if i.get("category") in {"jewellery", "innerwear"})
+        handle_return_intake(state, item["name"])
+    result = handle_return_intake(state, "doesn't fit")
+    assert result["reply"] != "This item is not eligible for return."
+    assert "non-returnable" in result["reply"].lower()
+
+
 def test_damage_claim_after_48_hours_is_ineligible(orders):
     older = next(o for o in orders.values() if o["status"] == "delivered" and o.get("delivered_at", "") < "2026-07-24")
     result = check_return_eligibility(older["order_id"], reason="damaged")
