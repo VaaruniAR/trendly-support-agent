@@ -2,6 +2,14 @@
 
 Aria is a customer-support web app for Trendly. It helps a signed-in customer check their own orders, understand Trendly policy, start supported return or exchange flows, and request a human handoff.
 
+## Live demo
+
+**[https://trendly-aavy.onrender.com](https://trendly-aavy.onrender.com)**
+
+- Free-tier Render instance — if it's been idle, the first request can take up to ~50s to wake up before the page responds.
+- The app's simulated "today" for return-window math is fixed at **26 July 2026** (`src/config.py`), matching the assignment's order data — dates in Aria's replies are relative to that, not the actual calendar date.
+- Choose a profile (top right) to see that customer's orders and chat history — each of the four sample customers only ever sees their own data.
+
 ## What it does
 
 - Uses a Groq function-calling agent to select structured support tools.
@@ -23,7 +31,7 @@ Browser UI → FastAPI API → ReAct orchestrator → structured tools
                                               └─ escalation service
 ```
 
-The model handles conversation and tool selection. Python code owns order lookup, policy retrieval, authorization, eligibility, actions, and escalation records.
+The model handles conversation and tool selection. Python code owns order lookup, policy retrieval, authorization, eligibility, actions, and escalation records. The return/exchange journey itself is a deterministic state machine (`src/services/return_intake.py`) that runs before the model's tool loop, so it cannot be skipped or reordered by the conversation. See [SOLUTION.md](SOLUTION.md) for the full architecture writeup, trade-offs, and known limitations.
 
 ## Run locally
 
@@ -53,15 +61,15 @@ Without a Groq key, the UI and health endpoint start but live chat remains unava
 ./run.sh test -q
 ```
 
-The suite covers deterministic tools, agent/tool orchestration, safety guardrails, session behavior, and API flows. `tests/test_data_integrity.py` verifies all 10 orders and every UI-visible order fact against the immutable `data/orders.json` source.
+The suite covers deterministic tools, agent/tool orchestration, safety guardrails, session behavior, return intake, cancellation handling, evidence storage, and API flows. `tests/test_data_integrity.py` verifies all 10 orders and every UI-visible order fact against the immutable `data/orders.json` source.
 
 ## Deploy on Render
 
-`render.yaml` is ready for a Render Web Service.
+`render.yaml` is ready for a Render Web Service (this is how the live demo above is deployed).
 
 1. Push this repository to GitHub.
 2. In Render, choose **New → Blueprint** and select the repository (or create a Web Service manually).
-3. Set the secret `GROQ_API_KEY` in Render’s environment settings.
+3. Set the secret `GROQ_API_KEY` directly in the service's **Environment** tab (the blueprint intentionally leaves it out of `render.yaml` via `sync: false` — never commit a real key).
 4. Deploy. Render uses `pip install -r requirements.txt` and starts `uvicorn src.main:app --host 0.0.0.0 --port $PORT`.
 5. Confirm `<your-render-url>/health` returns `status: "ok"` and `llm_configured: "True"`.
 
@@ -78,4 +86,4 @@ The app does not require a database. On a free instance, local chat sessions are
 
 ## AI-assisted development
 
-This project was developed with AI coding assistance. The implementation, policy/data grounding, and automated test outcomes in this repository were inspected and verified locally. See [PROMPTS.md](PROMPTS.md) for the actual prompting approach and limitations.
+This project was developed with AI coding assistance (Claude). The implementation, policy/data grounding, and automated test outcomes in this repository were inspected and verified locally rather than accepted blindly. See [PROMPTS.md](PROMPTS.md) for the actual system prompt, the prompting approach, and known limitations, and [SOLUTION.md](SOLUTION.md) for the architecture note and discovery questions.
