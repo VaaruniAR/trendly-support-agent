@@ -1387,7 +1387,7 @@ body {
 .header-account .account-btn { min-height: 38px; padding: .28rem .45rem; background: rgba(255,255,255,0.03); border-radius: 11px; }
 .header-account .account-avatar { width: 27px; height: 27px; font-size: .64rem; }
 .header-account .account-name { font-size: .76rem; }
-.header-account .account-menu { right: auto; left: 0; width: min(250px, calc(100vw - 2rem)); }
+.header-account .account-menu { left: auto; right: 0; width: min(250px, calc(100vw - 2rem)); }
 .header-account .account-item { min-height: 42px; padding: .38rem .48rem; }
 .header-account .account-item .account-avatar { width: 25px; height: 25px; }
 
@@ -1554,7 +1554,7 @@ body {
 
 @media (max-width: 540px) {
   .header-account { width: auto; }
-  .header-account .account-info, .header-account .account-chevron { display: none; }
+  .header-account .account-btn .account-info, .header-account .account-chevron { display: none; }
   .header-account .account-btn { width: auto; }
   .header-brand__name { font-size: 1.35rem; }
   .workspace .welcome h3 { font-size: 1.85rem; white-space: normal; }
