@@ -52,7 +52,8 @@ class SupportAgent:
             }
 
         if self._is_cancellation_request(user_message):
-            result = cancellation_response(self._order_id_from_message(user_message) or state.active_order_id)
+            order_id = self._order_id_from_message(user_message) or state.active_order_id
+            result = cancellation_response(order_id, user_message)
             if result is not None:
                 state.add_message("user", user_message)
                 state.add_message("assistant", result["reply"])
