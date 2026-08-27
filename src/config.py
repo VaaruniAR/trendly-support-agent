@@ -13,8 +13,16 @@ DATA_DIR = BASE_DIR / "data"
 POLICY_PATH = DATA_DIR / "trendly_policy.md"   # Official Trendly policy (read-only)
 ORDERS_PATH = DATA_DIR / "orders.json"         # Eval dataset — do not edit for submission
 # Tests can point this at an isolated temp file; normal runs keep the local
-# conversation history in data/chat_sessions.json.
+# conversation history in data/chat_sessions.json — unless DATABASE_URL is
+# set, in which case chat history is persisted to Postgres instead (see
+# src/agent/state.py). Render's free web services wipe the local filesystem
+# on every spin-down, not just on redeploy, so a JSON file alone does not
+# survive across a customer's separate visits on the live deployment.
 SESSIONS_PATH = Path(os.getenv("TRENDLY_SESSIONS_PATH", DATA_DIR / "chat_sessions.json"))
+# Optional Postgres connection string (e.g. a free Render Postgres
+# instance's Internal Database URL). Unset by default — the app falls back
+# to the local JSON file above, which is fine for local development.
+DATABASE_URL = os.getenv("DATABASE_URL")
 # Demo evidence storage: image files plus a small JSON registry used by the
 # local human-review handoff. Both paths are git-ignored and never public URLs.
 EVIDENCE_DIR = Path(os.getenv("TRENDLY_EVIDENCE_DIR", DATA_DIR / "return_evidence"))

@@ -52,8 +52,28 @@ Open [http://localhost:8000](http://localhost:8000). The same script creates `.v
 | `GROQ_API_KEY` | Yes for live chat | Free Groq API key. Never commit it. |
 | `GROQ_SSL_VERIFY` | No | Set `false` only for a known local/corporate TLS issue. |
 | `TRENDLY_SESSIONS_PATH` | No | Alternate chat-session file, used by tests. |
+| `DATABASE_URL` | No, but recommended for the live deployment | Postgres connection string. When set, chat history is persisted to Postgres instead of a local JSON file — see "Chat history persistence" below. |
 
 Without a Groq key, the UI and health endpoint start but live chat remains unavailable.
+
+### Chat history persistence
+
+By default, chat sessions are saved to `data/chat_sessions.json`. That's fine for local
+development, but Render's **free** web services wipe the local filesystem on every
+spin-down — not just on redeploy — so a customer's history would only survive as long
+as the instance stayed continuously active (roughly a 15-minute idle window). To make
+history for each profile actually persist between separate visits on the live demo:
+
+1. In Render, create a free **PostgreSQL** instance (New → PostgreSQL).
+2. Copy its **Internal Database URL**.
+3. Add it as a `DATABASE_URL` environment variable on the web service, the same way
+   `GROQ_API_KEY` is set.
+4. Redeploy. The app creates its `chat_sessions` table automatically on first
+   connection — no manual migration needed.
+
+If `DATABASE_URL` isn't set, or the app can't connect to it, chat still works — it just
+falls back to the local JSON file (logged as a warning), so a database hiccup never
+breaks a conversation in progress.
 
 ## Tests and data verification
 
@@ -70,10 +90,15 @@ The suite covers deterministic tools, agent/tool orchestration, safety guardrail
 1. Push this repository to GitHub.
 2. In Render, choose **New → Blueprint** and select the repository (or create a Web Service manually).
 3. Set the secret `GROQ_API_KEY` directly in the service's **Environment** tab (the blueprint intentionally leaves it out of `render.yaml` via `sync: false` — never commit a real key).
-4. Deploy. Render uses `pip install -r requirements.txt` and starts `uvicorn src.main:app --host 0.0.0.0 --port $PORT`.
-5. Confirm `<your-render-url>/health` returns `status: "ok"` and `llm_configured: "True"`.
+4. (Recommended) Create a free Render **PostgreSQL** instance and set its Internal
+   Database URL as `DATABASE_URL` on the same service — see "Chat history persistence"
+   above. Without it, chat still works, but history resets on every free-tier spin-down.
+5. Deploy. Render uses `pip install -r requirements.txt` and starts `uvicorn src.main:app --host 0.0.0.0 --port $PORT`.
+6. Confirm `<your-render-url>/health` returns `status: "ok"` and `llm_configured: "True"`.
 
-The app does not require a database. On a free instance, local chat sessions are ephemeral across restarts; production persistence can be added later without changing the tool layer.
+The app does not require a database to run — `DATABASE_URL` is optional. Without it,
+local chat sessions are a JSON file that's ephemeral across restarts (see above); with
+it, chat history for each profile survives restarts and spin-downs.
 
 ## Security and product notes
 

@@ -79,9 +79,17 @@ Chat history and evidence records persist to local JSON (`data/chat_sessions.jso
   prompt is the primary control on discount/refund language; the sanitizer
   exists because a model can still say the wrong thing even when instructed
   not to, and a deterministic check after generation is cheap insurance.
-- **Local JSON files, not a database.** Correct for a single-instance
-  assignment deployment; would not survive multi-instance scaling and is
-  explicitly called out below as a limitation rather than assumed away.
+- **Local JSON by default, optional Postgres for chat history.** The zero-config
+  path (`GROQ_API_KEY` only) stays local JSON, which is enough to run the app at
+  all and keeps setup to one secret. But on Render's free tier, local disk is
+  wiped on every spin-down — not just on redeploy — so a JSON file alone can't
+  actually keep a profile's conversation history between separate visits on the
+  live demo. Chat history now has a second backend (`src/agent/state.py`) that's
+  used automatically when a `DATABASE_URL` is set, storing the same session
+  records in Postgres instead; evidence photos and the eligibility rules stay
+  as they were, since they aren't the thing that was reported broken. A failed
+  DB read/write is caught and logged rather than raised, so a database hiccup
+  degrades to "history isn't saved this turn," never a broken chat.
 
 ## 3. Known limitations
 
@@ -95,9 +103,14 @@ Chat history and evidence records persist to local JSON (`data/chat_sessions.jso
   return in a new conversation on the same item would succeed again rather
   than being rejected. In production this would be backed by real order
   state.
-- Session and evidence storage is a single local JSON file; correct for one
-  instance, not for horizontal scaling, and not durable across a Render free
-  tier redeploy.
+- Evidence storage is still a single local JSON file plus local image files;
+  correct for one instance, not for horizontal scaling, and not durable across
+  a Render free-tier spin-down or redeploy (chat history no longer has this
+  limitation when `DATABASE_URL` is set — see the trade-off above).
+- The Postgres-backed session store opens one short-lived connection per
+  read/write rather than pooling; fine at demo scale (a handful of profiles,
+  low request volume), but a real production version would want a connection
+  pool (e.g. pgbouncer or SQLAlchemy's pool) instead.
 - Policy retrieval is keyword-scored, not semantic. An unusually phrased
   question could, in principle, score below the retrieval threshold; the
   topic-boost map mitigates the most likely phrasings but isn't exhaustive.
