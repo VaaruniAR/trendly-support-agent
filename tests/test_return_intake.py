@@ -125,24 +125,6 @@ def test_final_sale_item_explains_why_before_asking_reason(orders):
     assert state.return_intake is None
 
 
-def test_non_returnable_category_explains_why_not_just_ineligible(orders):
-    """A category-excluded item (e.g. jewellery) must explain the actual reason,
-    not fall back to a generic 'not eligible' with no detail."""
-    order = next(
-        o for o in orders.values()
-        if o["status"] == "delivered"
-        and any(i.get("category") in {"jewellery", "innerwear"} for i in o["items"])
-    )
-    state = _state(order)
-    handle_return_intake(state, f"I want to return {order['order_id']}")
-    if state.return_intake and state.return_intake["stage"] == "item":
-        item = next(i for i in order["items"] if i.get("category") in {"jewellery", "innerwear"})
-        handle_return_intake(state, item["name"])
-    result = handle_return_intake(state, "doesn't fit")
-    assert result["reply"] != "This item is not eligible for return."
-    assert "non-returnable" in result["reply"].lower()
-
-
 def test_damage_claim_after_48_hours_is_ineligible(orders):
     older = next(o for o in orders.values() if o["status"] == "delivered" and o.get("delivered_at", "") < "2026-07-24")
     result = check_return_eligibility(older["order_id"], reason="damaged")
@@ -165,15 +147,51 @@ def test_expired_window_item_explains_why_before_asking_reason(orders):
     assert state.return_intake is None
 
 
-def test_non_returnable_category_still_asks_reason_first(orders):
+def test_category_excluded_item_still_asks_reason_when_damage_window_open(orders, monkeypatch):
     """Unlike Final Sale/window-expiry, category exclusion genuinely depends on
-    the reason (a damaged/defective/wrong-item claim can waive it under §6.2),
-    so the preflight check must NOT short-circuit this case — it should still
-    ask for a reason before deciding eligibility."""
+    the reason (a damaged/defective/wrong-item claim can waive it under §6.2).
+    None of the fixture jewellery/innerwear orders are fresh enough to still be
+    inside that 48-hour damage window, so the "still eligible via damage claim"
+    branch is simulated here — the preflight check must NOT short-circuit in
+    that case, it should still ask for a reason."""
+    import src.services.return_intake as ri
+
     order = next(
         o for o in orders.values()
         if o["status"] == "delivered"
-        and o.get("delivered_at", "") >= "2026-06-26"
+        and any(i.get("category") in {"jewellery", "innerwear"} for i in o["items"])
+    )
+    item = next(i for i in order["items"] if i.get("category") in {"jewellery", "innerwear"})
+    real_check = ri.check_return_eligibility
+
+    def fake_check(order_id, item_ids=None, reason="change_of_mind"):
+        if reason in ri.DAMAGE_REASONS:
+            return {
+                "eligible": True,
+                "order_id": order_id,
+                "items": [{"item_id": item["item_id"], "name": item["name"], "eligible": True, "issues": []}],
+                "refund_note": "Full refund including shipping per §3.2 and §6.2.",
+            }
+        return real_check(order_id, item_ids, reason)
+
+    monkeypatch.setattr(ri, "check_return_eligibility", fake_check)
+
+    state = _state(order)
+    result = handle_return_intake(state, f"I want to return my {item['name']} from {order['order_id']}")
+    if state.return_intake and state.return_intake.get("stage") == "item":
+        result = handle_return_intake(state, item["name"])
+    assert "reason for returning" in result["reply"].lower()
+    assert state.return_intake["stage"] == "reason"
+
+
+def test_category_excluded_item_fully_foreclosed_explains_immediately(orders):
+    """When a category-excluded item's damage-claim window has ALSO closed
+    (the common real-world case — jewellery/innerwear ordered weeks ago), no
+    reason the customer gives changes the outcome, so Aria should say so right
+    away instead of asking for a reason she already knows leads nowhere."""
+    order = next(
+        o for o in orders.values()
+        if o["status"] == "delivered"
         and any(i.get("category") in {"jewellery", "innerwear"} for i in o["items"])
     )
     item = next(i for i in order["items"] if i.get("category") in {"jewellery", "innerwear"})
@@ -181,5 +199,7 @@ def test_non_returnable_category_still_asks_reason_first(orders):
     result = handle_return_intake(state, f"I want to return my {item['name']} from {order['order_id']}")
     if state.return_intake and state.return_intake.get("stage") == "item":
         result = handle_return_intake(state, item["name"])
-    assert "reason for returning" in result["reply"].lower()
-    assert state.return_intake["stage"] == "reason"
+    assert "non-returnable" in result["reply"].lower()
+    assert "48 hours" in result["reply"].lower()
+    assert "reason for returning" not in result["reply"].lower()
+    assert state.return_intake is None

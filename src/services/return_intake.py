@@ -128,31 +128,56 @@ def _ineligibility_reply(result: dict[str, Any], item_name: str) -> str:
 
 
 def _preflight_ineligibility_reply(order: dict[str, Any], item: dict[str, Any]) -> dict[str, Any] | None:
-    """Catch ineligibility that does NOT depend on the customer's reason —
-    return window expired, or the item is Final Sale — and surface it the
-    moment the item is identified, before ever asking "what's the reason?".
+    """Catch ineligibility the customer's eventual reason can't change, and
+    surface it the moment the item is identified — before ever asking
+    "what's the reason?". Returns None when the reason genuinely still
+    matters, so the normal ask-for-reason flow continues.
 
-    A neutral "change_of_mind" reason is used for this probe on purpose: it
-    can never trigger the two reason-*dependent* failure modes (the §6.1
-    48-hour late-damage-report window, and the §6.2 damage exception that
-    waives non-returnable-category exclusions), so if this probe still comes
-    back ineligible, it is for a reason-independent cause. Category exclusion
-    alone (no window/final-sale problem) still needs the real reason, since a
-    damaged/defective/wrong-item claim can make an otherwise-excluded
-    category eligible — so that case returns None and the normal
-    ask-for-reason flow continues.
+    A neutral "change_of_mind" probe catches window-expired and Final Sale
+    outright, since neither depends on reason. A bare non-returnable-category
+    issue is different: §6.2 lets a damaged/defective/wrong-item reason waive
+    it — UNLESS the §6.1 48-hour damage-report window has also already
+    passed, in which case every possible reason dead-ends (change-of-mind
+    hits the category exclusion, a damage claim hits the 48-hour cutoff), so
+    a second probe with a damage-type reason checks that before giving up
+    and asking anyway.
     """
-    result = check_return_eligibility(order["order_id"], [item["item_id"]], "change_of_mind")
-    if result.get("eligible"):
+    neutral = check_return_eligibility(order["order_id"], [item["item_id"]], "change_of_mind")
+    if neutral.get("eligible"):
         return None
-    if result.get("reason") or item.get("final_sale"):
+    if neutral.get("reason") or item.get("final_sale"):
         suffix = (
             " Would you like me to check available sizes for an exchange instead?"
             if item.get("final_sale")
             else ""
         )
         return {
-            "reply": f"{_ineligibility_reply(result, item['name'])}{suffix}",
+            "reply": f"{_ineligibility_reply(neutral, item['name'])}{suffix}",
+            "tool_calls": ["check_return_eligibility"],
+        }
+
+    # Only a category-exclusion issue so far — check whether a damage-type
+    # reason would actually still rescue it before deciding to ask.
+    damage_probe = check_return_eligibility(order["order_id"], [item["item_id"]], "damaged")
+    if damage_probe.get("eligible"):
+        return None
+    if damage_probe.get("reason"):
+        # Foreclosed on the damage path too (48-hour window has passed) —
+        # no reason the customer gives changes the outcome. Report the core
+        # category issue plus why the damage exception doesn't save it,
+        # rather than the generic "verify reason" caveat (already answered).
+        item_result = next((i for i in neutral.get("items", []) if not i.get("eligible")), None)
+        core_issue = next(
+            (i for i in (item_result.get("issues") or []) if not i.lower().startswith("exception")),
+            "not eligible for return",
+        )
+        damage_text = _customer_copy(damage_probe["reason"])
+        return {
+            "reply": (
+                f"**{item['name']}** — {_customer_copy(core_issue.rstrip('.'))}. "
+                f"A damaged/defective/wrong-item claim would normally be an exception (§6.2), "
+                f"but that window has also closed: {damage_text}"
+            ),
             "tool_calls": ["check_return_eligibility"],
         }
     return None
