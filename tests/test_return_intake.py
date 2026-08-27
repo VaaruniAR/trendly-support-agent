@@ -148,3 +148,38 @@ def test_damage_claim_after_48_hours_is_ineligible(orders):
     result = check_return_eligibility(older["order_id"], reason="damaged")
     assert result["eligible"] is False
     assert result["policy_reference"] == "§6.1"
+
+
+def test_expired_window_item_explains_why_before_asking_reason(orders):
+    """Return-window expiry never depends on the reason either — it should be
+    surfaced the moment the item is identified, same as Final Sale, instead of
+    asking 'what's the reason?' first and only revealing this after."""
+    order = next(
+        o for o in orders.values()
+        if o["status"] == "delivered" and o.get("delivered_at", "") < "2026-06-26"
+    )
+    state = _state(order)
+    result = handle_return_intake(state, f"I'd like to start a return. My order ID is {order['order_id']}")
+    assert "window expired" in result["reply"].lower()
+    assert "reason for returning" not in result["reply"].lower()
+    assert state.return_intake is None
+
+
+def test_non_returnable_category_still_asks_reason_first(orders):
+    """Unlike Final Sale/window-expiry, category exclusion genuinely depends on
+    the reason (a damaged/defective/wrong-item claim can waive it under §6.2),
+    so the preflight check must NOT short-circuit this case — it should still
+    ask for a reason before deciding eligibility."""
+    order = next(
+        o for o in orders.values()
+        if o["status"] == "delivered"
+        and o.get("delivered_at", "") >= "2026-06-26"
+        and any(i.get("category") in {"jewellery", "innerwear"} for i in o["items"])
+    )
+    item = next(i for i in order["items"] if i.get("category") in {"jewellery", "innerwear"})
+    state = _state(order)
+    result = handle_return_intake(state, f"I want to return my {item['name']} from {order['order_id']}")
+    if state.return_intake and state.return_intake.get("stage") == "item":
+        result = handle_return_intake(state, item["name"])
+    assert "reason for returning" in result["reply"].lower()
+    assert state.return_intake["stage"] == "reason"

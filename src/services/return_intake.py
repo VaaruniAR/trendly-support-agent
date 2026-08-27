@@ -127,17 +127,35 @@ def _ineligibility_reply(result: dict[str, Any], item_name: str) -> str:
     return text if text.endswith((".", "!", "?")) else text + "."
 
 
-def _final_sale_reply(order: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
-    """Final Sale eligibility never depends on the return reason, so surface it
-    immediately when the item is identified instead of asking for a reason first."""
+def _preflight_ineligibility_reply(order: dict[str, Any], item: dict[str, Any]) -> dict[str, Any] | None:
+    """Catch ineligibility that does NOT depend on the customer's reason —
+    return window expired, or the item is Final Sale — and surface it the
+    moment the item is identified, before ever asking "what's the reason?".
+
+    A neutral "change_of_mind" reason is used for this probe on purpose: it
+    can never trigger the two reason-*dependent* failure modes (the §6.1
+    48-hour late-damage-report window, and the §6.2 damage exception that
+    waives non-returnable-category exclusions), so if this probe still comes
+    back ineligible, it is for a reason-independent cause. Category exclusion
+    alone (no window/final-sale problem) still needs the real reason, since a
+    damaged/defective/wrong-item claim can make an otherwise-excluded
+    category eligible — so that case returns None and the normal
+    ask-for-reason flow continues.
+    """
     result = check_return_eligibility(order["order_id"], [item["item_id"]], "change_of_mind")
-    return {
-        "reply": (
-            f"{_ineligibility_reply(result, item['name'])} "
-            "Would you like me to check available sizes for an exchange instead?"
-        ),
-        "tool_calls": ["check_return_eligibility"],
-    }
+    if result.get("eligible"):
+        return None
+    if result.get("reason") or item.get("final_sale"):
+        suffix = (
+            " Would you like me to check available sizes for an exchange instead?"
+            if item.get("final_sale")
+            else ""
+        )
+        return {
+            "reply": f"{_ineligibility_reply(result, item['name'])}{suffix}",
+            "tool_calls": ["check_return_eligibility"],
+        }
+    return None
 
 
 def _eligible_confirmation(state: ConversationState, order: dict[str, Any]) -> dict[str, Any]:
@@ -186,8 +204,9 @@ def handle_return_intake(state: ConversationState, message: str) -> dict[str, An
             state.return_intake = {"order_id": order_id, "stage": "item"}
             return {"reply": _items_prompt(order), "choices": _item_choices(order)}
         item = order["items"][0]
-        if item.get("final_sale"):
-            return _final_sale_reply(order, item)
+        preflight = _preflight_ineligibility_reply(order, item)
+        if preflight:
+            return preflight
         state.return_intake = {
             "order_id": order_id, "item_id": item["item_id"], "item_name": item["name"], "stage": "reason"
         }
@@ -202,9 +221,10 @@ def handle_return_intake(state: ConversationState, message: str) -> dict[str, An
         item = _find_item(order, message)
         if not item:
             return {"reply": _items_prompt(order), "choices": _item_choices(order)}
-        if item.get("final_sale"):
+        preflight = _preflight_ineligibility_reply(order, item)
+        if preflight:
             state.return_intake = None
-            return _final_sale_reply(order, item)
+            return preflight
         intake.update({"item_id": item["item_id"], "item_name": item["name"], "stage": "reason"})
         return {"reply": _reason_prompt(item), "choices": RETURN_REASON_CHOICES}
 
