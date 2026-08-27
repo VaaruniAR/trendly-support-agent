@@ -1,6 +1,6 @@
 # Prompt Engineering Notes — Aria
 
-This is an honest record of the prompts and constraints used to shape Aria. It documents the current implementation rather than inventing a development history.
+This is an honest record of the prompts and constraints used to shape Aria. It documents the current implementation rather than inventing a development history. See [README.md](README.md) for the live demo link and setup, and [SOLUTION.md](SOLUTION.md) for the architecture and trade-offs.
 
 ## System prompt goals
 
