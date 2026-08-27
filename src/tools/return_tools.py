@@ -7,6 +7,28 @@ from src.tools.order_tools import _days_since_delivery
 
 DAMAGE_REASONS = {"damaged", "wrong_item", "defective"}
 
+# §3.1 refund timelines by original payment method. Card-family methods all
+# get card's timeline; anything unrecognized falls back to the card row
+# rather than silently claiming a specific destination that may be wrong.
+REFUND_DESTINATIONS = {
+    "credit_card": ("to your original card", "5–7 business days"),
+    "debit_card": ("to your original card", "5–7 business days"),
+    "prepaid_card": ("to your original card", "5–7 business days"),
+    "upi": ("to your original UPI ID", "3–5 business days"),
+    "cash_on_delivery": ("via bank transfer or store credit", "7–10 business days"),
+    "store_credit": ("as store credit", None),
+}
+
+
+def _refund_timeline_note(payment_method: str | None) -> str:
+    """§3.1: the refund window and destination depend on how the order was paid."""
+    destination, window = REFUND_DESTINATIONS.get(
+        payment_method or "", ("to your original card", "5–7 business days")
+    )
+    if window is None:
+        return f"Refund {destination} is issued immediately after warehouse inspection (§3.1)."
+    return f"Refund {destination} in {window} after warehouse inspection (§3.1)."
+
 
 def _category_excluded(category: str) -> bool:
     return category.lower().strip() in EXCLUDED_CATEGORIES
@@ -294,7 +316,7 @@ def initiate_return(
         "status": "Pickup Scheduled",
         "message": (
             "Return pickup scheduled. Carrier will attempt pickup up to 2 times (§5.1). "
-            "Refund in 5–7 business days after warehouse inspection for card payments (§3.1)."
+            f"{_refund_timeline_note(order.get('payment_method'))}"
         ),
         "refund_note": eligibility.get("refund_note"),
     }
