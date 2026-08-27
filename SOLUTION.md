@@ -1,6 +1,6 @@
 # Solution Note — Aria, Trendly Support Agent
 
-**Author:** Vaaruni Ramesh · **Assignment:** Build an Agentic Support Assistant (Yellow.ai FDE Intern screening)
+**Author:** Vaaruni A R · **Assignment:** Build an Agentic Support Assistant (Yellow.ai FDE Intern screening)
 
 **Live demo:** [https://trendly-aavy.onrender.com](https://trendly-aavy.onrender.com) (free-tier Render — allow ~50s to wake if idle). See [README.md](README.md) for setup and [PROMPTS.md](PROMPTS.md) for the prompting approach.
 
