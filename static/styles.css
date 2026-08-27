@@ -1353,6 +1353,16 @@ body {
 
 .app-header {
   grid-row: 1;
+  /* z-index only creates a stacking context on a grid item, or on a
+     positioned element. On mobile .app switches to display:block (see the
+     max-width:900px rule below), which strips grid-item status from this
+     header — without an explicit position, z-index becomes a no-op and the
+     account-switcher dropdown (a descendant, position:absolute) loses its
+     stacking context and paints interleaved with the chat below instead of
+     as a clean top-layer overlay. position:relative keeps the stacking
+     context (and therefore the dropdown's z-index) working in both the
+     desktop grid layout and the mobile block layout. */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
